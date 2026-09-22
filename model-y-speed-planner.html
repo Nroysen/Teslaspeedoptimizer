@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Model Y speed planner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    --bg: #000000;
+    --surface: #1a1b1d;
+    --ink: #ffffff;
+    --ink-2: #8c8f96;
+    --ink-3: #5c5e64;
+    --rule: #2b2d30;
+    --grid: rgba(255, 255, 255, 0.09);
+    --drive: #3e6ae1;
+    --charge: #29c46f;
+    --ovh: #55585f;
+    --good: #29c46f;
+    --bad: #eb0a1e;
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    --bg: #f2f2f3;
+    --surface: #ffffff;
+    --ink: #171a20;
+    --ink-2: #5c5e62;
+    --ink-3: #8e8e8e;
+    --rule: #e2e3e5;
+    --grid: rgba(23, 26, 32, 0.08);
+    --drive: #3e6ae1;
+    --charge: #17a75a;
+    --ovh: #b7b9bd;
+    --good: #17a75a;
+    --bad: #d6091c;
+    color-scheme: light;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible { outline: 2px solid var(--drive); outline-offset: 2px; }
+
+  .app { max-width: 1280px; margin: 0 auto; padding: 28px 20px 72px; }
+  header.top { margin-bottom: 24px; max-width: 720px; }
+  header.top h1 {
+    font-size: 26px; line-height: 1.15; letter-spacing: -0.01em; margin: 0 0 6px; font-weight: 600;
+  }
+  header.top p { margin: 0; color: var(--ink-2); font-size: 14px; }
+
+  .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; }
+  @media (max-width: 960px) { .layout { grid-template-columns: 1fr; gap: 16px; } }
+
+  /* Controls: styled like a Tesla app settings card */
+  .controls {
+    background: var(--surface);
+    border: none;
+    border-radius: 20px;
+    padding: 18px 18px 6px;
+    position: sticky;
+    top: calc(env(safe-area-inset-top, 0px) + 16px);
+    max-height: calc(100vh - 32px);
+    overflow: auto;
+  }
+  @media (max-width: 960px) { .controls { position: static; max-height: none; } }
+  .controls h2 {
+    font-size: 11px; margin: 0 0 14px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.07em; color: var(--ink-2);
+  }
+  .group { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--rule); }
+  .group:last-child { border-bottom: 0; margin-bottom: 0; }
+  .field { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; align-items: baseline; margin-bottom: 16px; }
+  .field > span {
+    font-size: 12px; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;
+  }
+  .field > output { font-size: 14px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .field > input[type=range] { grid-column: 1 / -1; width: 100%; margin: 10px 0 0; }
+  .field small { grid-column: 1 / -1; color: var(--ink-3); font-size: 11.5px; line-height: 1.4; margin-top: 6px; }
+  .distance { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+  .distance label {
+    font-size: 12px; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;
+  }
+  .distance input[type=number] {
+    width: 116px; font: inherit; font-size: 22px; font-weight: 700; padding: 6px 12px;
+    border: 1px solid var(--rule); border-radius: 10px; background: var(--bg); color: var(--ink);
+    text-align: right; font-variant-numeric: tabular-nums;
+  }
+  .distance input[type=range] { grid-column: 1 / -1; width: 100%; margin: 10px 0 0; }
+  details.more summary {
+    cursor: pointer; font-size: 11px; font-weight: 700; margin-bottom: 14px; color: var(--ink-2);
+    text-transform: uppercase; letter-spacing: 0.07em; list-style: none;
+  }
+  details.more summary::-webkit-details-marker { display: none; }
+  details.more summary::after { content: ' \2304'; }
+  details.more[open] summary::after { content: ' \2303'; }
+  .field input[type=number] {
+    grid-column: 1 / -1; width: 100%; font: inherit; padding: 8px 12px; margin-top: 8px;
+    border: 1px solid var(--rule); border-radius: 10px; background: var(--bg); color: var(--ink);
+  }
+
+  /* Tesla-style pill sliders */
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px;
+    background: var(--rule); outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 999px; background: var(--rule); }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 22px; height: 22px; border-radius: 50%;
+    background: #ffffff; border: none; margin-top: -8px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.4);
+    cursor: pointer;
+  }
+  input[type=range]::-moz-range-track { height: 6px; border-radius: 999px; background: var(--rule); }
+  input[type=range]::-moz-range-thumb {
+    width: 22px; height: 22px; border-radius: 50%; background: #ffffff; border: none;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.4); cursor: pointer;
+  }
+  #distR::-webkit-slider-thumb { background: var(--drive); }
+  #distR::-moz-range-thumb { background: var(--drive); }
+
+  /* Main: every section reads as an app card */
+  main section {
+    margin-bottom: 16px; background: var(--surface); border-radius: 20px; padding: 22px 22px 26px;
+  }
+  main h2 { font-size: 17px; letter-spacing: -0.005em; margin: 0 0 4px; font-weight: 600; }
+  main p.sub { margin: 0 0 16px; color: var(--ink-2); max-width: 70ch; font-size: 13.5px; }
+  .verdict { padding-top: 26px; }
+  .verdict p.eyebrow {
+    margin: 0 0 10px; font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.09em; color: var(--drive);
+  }
+  .verdict h2 {
+    font-size: 32px; line-height: 1.2; letter-spacing: -0.01em; margin-bottom: 16px; max-width: 28ch;
+    font-weight: 600;
+  }
+  .verdict p { margin: 0 0 8px; max-width: 68ch; font-size: 14px; }
+  .verdict p.note { color: var(--ink-2); }
+  .verdict .g { color: var(--good); font-weight: 700; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { padding: 9px 10px; text-align: right; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th {
+    font-weight: 700; color: var(--ink-2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  tr.hl td { background: color-mix(in srgb, var(--good) 16%, transparent); font-weight: 600; }
+  tr.you td { background: color-mix(in srgb, var(--drive) 18%, transparent); font-weight: 600; }
+  .tag {
+    font-size: 10px; font-weight: 700; margin-left: 6px; color: var(--ink-2); text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .scroll { overflow-x: auto; max-width: 100%; }
+
+  .compare { max-width: 640px; }
+  .compare td.d { color: var(--ink-2); }
+
+  .chart-box { position: relative; height: 340px; }
+  .chart-box.tall { height: 400px; }
+  .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 1180px) { .grid2 { grid-template-columns: 1fr; gap: 16px; } }
+  .grid2 > div { background: var(--surface); border-radius: 20px; padding: 22px 22px 26px; }
+  .grid2 { background: transparent; padding: 0; }
+  section.grid2 { background: transparent !important; padding: 0 !important; }
+
+  .seg {
+    display: inline-flex; background: var(--bg); border-radius: 999px; padding: 3px; margin-bottom: 14px;
+  }
+  .seg button {
+    font: inherit; font-size: 12.5px; font-weight: 600; padding: 7px 16px; border: 0; background: transparent;
+    color: var(--ink-2); cursor: pointer; border-radius: 999px;
+  }
+  .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); }
+
+  .heat th, .heat td { text-align: center; padding: 7px 8px; }
+  .heat th:first-child, .heat td:first-child { text-align: left; }
+  .heat td.cell { min-width: 62px; border-radius: 6px; }
+  .heat td.best { outline: 2px solid var(--ink); outline-offset: -2px; font-weight: 700; }
+  .heat td.over, .heat th.over { opacity: 0.45; }
+  .heat td.q { font-weight: 700; color: var(--good); }
+
+  ul.plain { padding-left: 18px; margin: 0; color: var(--ink-2); font-size: 13.5px; }
+  ul.plain li { margin-bottom: 8px; }
+  ul.plain a { color: var(--drive); text-decoration: none; }
+  ul.plain a:hover { text-decoration: underline; }
+  .fine { font-size: 12.5px; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <h1>Model Y speed planner</h1>
+    <p>Driving faster saves driving time but costs range, and every extra charging stop eats time back. Enter a distance and see where the trade-off lands.</p>
+  </header>
+
+  <div class="layout">
+    <aside class="controls" aria-label="Inputs">
+      <div class="group">
+        <h2>Trip</h2>
+        <div class="distance">
+          <label for="dist">Distance (km)</label>
+          <input type="number" id="dist" min="50" max="5000" step="10" value="800" inputmode="numeric">
+          <input type="range" id="distR" min="50" max="3000" step="10" value="800" aria-label="Distance slider">
+        </div>
+        <div style="height:12px"></div>
+        <label class="field"><span>Battery at departure</span><output id="o_soc0"></output>
+          <input type="range" id="soc0" min="20" max="100" step="1" value="80"></label>
+        <label class="field"><span>Highest speed you'd drive</span><output id="o_vcap"></output>
+          <input type="range" id="vcap" min="90" max="200" step="5" value="130">
+          <small>The fastest speed is searched up to this limit. Above about 160 km/h treat this as theoretical &mdash; real efficiency data barely exists up here.</small></label>
+        <label class="field"><span>Your own speed to compare</span><output id="o_vsel"></output>
+          <input type="range" id="vsel" min="60" max="200" step="1" value="120"></label>
+      </div>
+
+      <div class="group">
+        <h2>Charging</h2>
+        <label class="field"><span>Arrive at charger with</span><output id="o_reserve"></output>
+          <input type="range" id="reserve" min="3" max="30" step="1" value="10">
+          <small>Also the battery level you want left at the destination.</small></label>
+        <label class="field"><span>Charge up to</span><output id="o_tgt"></output>
+          <input type="range" id="tgt" min="40" max="100" step="5" value="70"></label>
+        <label class="field"><span>Charger power</span><output id="o_kw"></output>
+          <input type="range" id="kw" min="30" max="250" step="10" value="250">
+          <small>The car limits itself to its own curve if the charger can deliver more.</small></label>
+        <label class="field"><span>Extra time per stop</span><output id="o_ovh"></output>
+          <input type="range" id="ovh" min="0" max="20" step="1" value="5">
+          <small>Detour, parking, plugging in, waiting for ramp-up.</small></label>
+      </div>
+
+      <div class="group">
+        <details class="more">
+          <summary>Car and price</summary>
+          <label class="field"><span>Usable battery</span><output id="o_cap"></output>
+            <input type="range" id="cap" min="60" max="85" step="1" value="78"></label>
+          <label class="field"><span>Consumption vs. tests</span><output id="o_eff"></output>
+            <input type="range" id="eff" min="70" max="115" step="1" value="100">
+            <small>100% follows the published Model Y tests. Lower means a more efficient car than those tests.</small></label>
+          <label class="field"><span>Charging price per kWh</span><output id="o_price"></output>
+            <input type="range" id="price" min="0" max="6" step="0.1" value="3.0">
+            <small>DKK per kWh. Only used for the cost figures.</small></label>
+        </details>
+      </div>
+    </aside>
+
+    <main>
+      <section class="verdict" id="verdict" aria-live="polite"></section>
+
+      <section>
+        <h2>Compare your speed with the fastest</h2>
+        <p class="sub">Same trip, two speeds.</p>
+        <div class="scroll compare"><table id="compare"></table></div>
+      </section>
+
+      <section>
+        <h2>Total trip time by speed</h2>
+        <p class="sub">Door to door, including charging. The small notches are the points where one more charging stop becomes necessary.</p>
+        <div class="chart-box tall"><canvas id="cTotal"></canvas></div>
+      </section>
+
+      <section class="grid2">
+        <div>
+          <h2>Where the time goes</h2>
+          <p class="sub">Driving time falls as you speed up while charging time grows.</p>
+          <div class="chart-box"><canvas id="cStack"></canvas></div>
+        </div>
+        <div>
+          <h2>Efficiency by speed</h2>
+          <p class="sub">The line is the model. Dots are published test results.</p>
+          <div class="chart-box"><canvas id="cEff"></canvas></div>
+        </div>
+      </section>
+
+      <section class="grid2">
+        <div>
+          <h2>Charging stops and range</h2>
+          <p class="sub">Range between stops is what one charge from your low to your high battery level gets you.</p>
+          <div class="chart-box"><canvas id="cStops"></canvas></div>
+        </div>
+        <div>
+          <h2>What each extra 10 km/h buys you</h2>
+          <p class="sub">Minutes saved on this trip against extra energy you have to charge.</p>
+          <div class="chart-box"><canvas id="cMarg"></canvas></div>
+        </div>
+      </section>
+
+      <section class="grid2">
+        <div>
+          <h2>Charging curve</h2>
+          <p class="sub" id="curveNote"></p>
+          <div class="chart-box"><canvas id="cCurve"></canvas></div>
+        </div>
+        <div>
+          <h2>How the model works</h2>
+          <ul class="plain">
+            <li>Constant cruising speed on flat road. No wind, no temperature effects (the test data is mild weather, around 20 &deg;C).</li>
+            <li>Consumption follows a curve fitted to published Model Y tests: a fixed part, an aerodynamic part that grows with speed squared, and a small standby part.</li>
+            <li>Charging uses an approximate Supercharger curve for a preheated battery. At 250 kW it takes roughly 30 minutes from 10 to 80%. It is scaled to the battery size and limited by the charger power.</li>
+            <li>Every stop adds a fixed extra time. The last stop only adds what you need to reach the destination with your chosen reserve.</li>
+            <li>Results are only as good as those inputs. Treat differences of a few minutes as noise.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section>
+        <h2>Which charge level and charger change the answer</h2>
+        <p class="sub">Total trip time for your distance. Green is fastest, the outlined cell is the best of that row. Columns above your speed limit are dimmed. "Quickest" is searched in 1 km/h steps up to 170.</p>
+        <div class="seg" role="group" aria-label="Heatmap rows">
+          <button type="button" id="hmTgt" aria-pressed="true">Charge up to</button>
+          <button type="button" id="hmKw" aria-pressed="false">Charger power</button>
+        </div>
+        <div class="scroll"><table class="heat" id="heat"></table></div>
+      </section>
+
+      <section>
+        <h2>Speed table</h2>
+        <div class="scroll"><table id="tbl"></table></div>
+      </section>
+
+      <section>
+        <h2>Data used</h2>
+        <ul class="plain">
+          <li>Efficiency: Bj&oslash;rn Nyland range tests of the Model Y (about 145 Wh/km at 90 km/h and 195&ndash;205 Wh/km at 120 km/h), reported by <a href="https://insideevs.com/news/592937/tesla-modely-performance-mig-range/" target="_blank" rel="noopener">InsideEVs</a> and <a href="https://www.zerofy.net/2022/10/27/tesla-model-y-ev-of-the-month.html" target="_blank" rel="noopener">Zerofy</a>; 100 and 130 km/h from <a href="https://techzle.com/tesla-model-y-long-range-range-measured-at-100-and-130-km-h" target="_blank" rel="noopener">Techzle</a>; 110 km/h estimate from <a href="https://evkx.net/models/tesla/model_y/model_y_long_range/rangeandconsumption/" target="_blank" rel="noopener">EVKX</a>.</li>
+          <li>A 2025 Model Y test at 110, 120 and 130 km/h by <a href="https://www.enhauto.com/blogs/all/how-much-energy-does-your-tesla-use-at-highway-speeds" target="_blank" rel="noopener">ENH Auto</a> shows clearly lower consumption than the older tests. It is shown as separate dots. Use the consumption slider to move the model toward it (about 78%).</li>
+          <li>Charging: shape based on <a href="https://evkx.net/models/tesla/model_y/model_y_performance/chargingcurve/" target="_blank" rel="noopener">EVKX charging curves</a> and the <a href="https://www.evercars.com/resources/tesla-model-y-rwd-charging-test" target="_blank" rel="noopener">Ever Cars 10&ndash;80% test</a> (about 31 minutes). The curve here is a simplified approximation.</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script>
+const VMIN = 60, VMAX = 200;
+const CA = 57.3, CB = 0.009333, CP = 1000;
+function whkm(v, eff) { return (CA + CB * v * v + CP / v) * eff / 100; }
+
+const CURVE = [[0,170],[5,215],[10,235],[15,225],[20,200],[25,175],[30,155],[35,140],[40,128],[45,116],
+               [50,105],[55,96],[60,88],[65,80],[70,72],[75,63],[80,52],[85,41],[90,32],[95,24],[100,14]];
+function curveKw(soc, cap, maxKw) {
+  const x = Math.min(100, Math.max(0, soc * 100));
+  const i = Math.min(CURVE.length - 2, Math.floor(x / 5));
+  const p0 = CURVE[i], p1 = CURVE[i + 1];
+  const y = p0[1] + (p1[1] - p0[1]) * (x - p0[0]) / (p1[0] - p0[0]);
+  return Math.min(maxKw, y * cap / 78);
+}
+function chargeMinutes(s1, s2, cap, maxKw) {
+  if (s2 <= s1) return 0;
+  const steps = Math.max(1, Math.ceil((s2 - s1) * 200));
+  const ds = (s2 - s1) / steps;
+  let t = 0;
+  for (let i = 0; i < steps; i++) {
+    const p = curveKw(s1 + (i + 0.5) * ds, cap, maxKw);
+    t += ds * cap / p * 60;
+  }
+  return t;
+}
+function sim(v, s, ov) {
+  const o = ov ? Object.assign({}, s, ov) : s;
+  const cap = o.cap, e = whkm(v, o.eff) / 1000, need = o.dist * e;
+  const s0 = o.soc0 / 100, res = o.reserve / 100, tgt = o.tgt / 100;
+  let remaining = need, stops = 0, charged = 0, chargeMin = 0, arrival;
+  const first = Math.max(0, s0 - res) * cap;
+  if (need <= first) {
+    arrival = s0 - need / cap;
+    remaining = 0;
+  } else {
+    remaining -= first;
+    arrival = res;
+    while (remaining > 1e-6 && stops < 60) {
+      stops++;
+      const target = Math.min(tgt, res + remaining / cap);
+      const add = (target - res) * cap;
+      chargeMin += chargeMinutes(res, target, cap, o.kw);
+      charged += add;
+      remaining -= add;
+    }
+  }
+  const drive = o.dist / v * 60, ovh = stops * o.ovh;
+  const total = drive + chargeMin + ovh;
+  return {
+    v, whkm: e * 1000, kmkwh: 1 / e, drive, charge: chargeMin, ovh, total, stops,
+    charged, cost: charged * o.price, energy: need, arrival,
+    legRange: (tgt - res) * cap / e, avg: o.dist / (total / 60)
+  };
+}
+function scan(s, ov) {
+  const out = [];
+  for (let v = VMIN; v <= VMAX; v++) out.push(sim(v, s, ov));
+  return out;
+}
+function argminTotal(arr) {
+  return arr.reduce((a, b) => (b.total < a.total - 1e-9 ? b : a));
+}
+
+const $ = id => document.getElementById(id);
+const IDS = ['dist','soc0','vcap','vsel','reserve','tgt','kw','ovh','cap','eff','price'];
+function readState() {
+  const s = {};
+  IDS.forEach(i => { const n = parseFloat($(i).value); s[i] = isFinite(n) ? n : 0; });
+  s.dist = Math.max(10, s.dist);
+  return s;
+}
+const pad2 = n => String(n).padStart(2, '0');
+function fmtT(m) {
+  const t = Math.round(m), h = Math.floor(t / 60), mm = t % 60;
+  return h > 0 ? h + ' h ' + pad2(mm) + ' min' : mm + ' min';
+}
+function fmtHM(m) { const t = Math.round(m); return Math.floor(t / 60) + ':' + pad2(t % 60); }
+function signedMin(m) {
+  const r = Math.round(m);
+  if (r === 0) return 'same';
+  return (r > 0 ? '+' : '\u2212') + fmtT(Math.abs(r));
+}
+const stopsTxt = n => n === 0 ? 'no charging stops' : n === 1 ? '1 charging stop' : n + ' charging stops';
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+const PTS_OLD = [[90,142],[90,146],[100,160],[110,180],[120,195],[120,205],[130,229]];
+const PTS_NEW = [[110,142.6],[120,156.8],[130,168.4]];
+
+let heatMode = 'tgt';
+const charts = {};
+function mk(id, cfg) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart($(id).getContext('2d'), cfg);
+}
+
+const markersPlugin = {
+  id: 'markers',
+  beforeDatasetsDraw(chart, args, opts) {
+    if (!opts || !opts.bands) return;
+    const { ctx, chartArea: a, scales: { x } } = chart;
+    opts.bands.forEach(b => {
+      const x0 = Math.max(a.left, x.getPixelForValue(b.from));
+      const x1 = Math.min(a.right, x.getPixelForValue(b.to));
+      if (x1 <= x0) return;
+      ctx.save();
+      ctx.fillStyle = b.color;
+      ctx.fillRect(x0, a.top, x1 - x0, a.bottom - a.top);
+      ctx.restore();
+    });
+  },
+  afterDatasetsDraw(chart, args, opts) {
+    if (!opts || !opts.lines) return;
+    const { ctx, chartArea: a, scales: { x } } = chart;
+    opts.lines.forEach(l => {
+      const px = x.getPixelForValue(l.x);
+      if (px < a.left || px > a.right) return;
+      ctx.save();
+      ctx.strokeStyle = l.color;
+      ctx.lineWidth = 1.5;
+      if (l.dash) ctx.setLineDash(l.dash);
+      ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke();
+      ctx.setLineDash([]);
+      if (l.label) {
+        ctx.fillStyle = l.color;
+        ctx.font = '600 12px ' + Chart.defaults.font.family;
+        const right = px > (a.left + a.right) / 2;
+        ctx.textAlign = right ? 'right' : 'left';
+        ctx.fillText(l.label, px + (right ? -6 : 6), a.top + 14 + (l.row || 0) * 16);
+      }
+      ctx.restore();
+    });
+  }
+};
+Chart.register(markersPlugin);
+
+function update() {
+  const s = readState();
+
+  $('o_soc0').textContent = s.soc0 + '%';
+  $('o_vcap').textContent = s.vcap + ' km/h';
+  $('o_vsel').textContent = s.vsel + ' km/h';
+  $('o_reserve').textContent = s.reserve + '%';
+  $('o_tgt').textContent = s.tgt + '%';
+  $('o_kw').textContent = s.kw + ' kW';
+  $('o_ovh').textContent = s.ovh + ' min';
+  $('o_cap').textContent = s.cap + ' kWh';
+  $('o_eff').textContent = s.eff + '%';
+  $('o_price').textContent = s.price.toFixed(2) + ' kr';
+
+  const res = scan(s);
+  const inCap = res.filter(r => r.v <= s.vcap);
+  const best = argminTotal(inCap);
+  const bestAll = argminTotal(res);
+  const sel = sim(s.vsel, s);
+
+  renderVerdict(s, res, best, bestAll, sel);
+  renderCompare(s, best, sel);
+  renderCharts(s, res, best, bestAll, sel);
+  renderHeat(s);
+  renderTable(s, best, sel);
+}
+
+function renderVerdict(s, res, best, bestAll, sel) {
+  const lines = [];
+  if (best.v === s.vcap) {
+    lines.push('Your top speed of ' + s.vcap + ' km/h is also the quickest option. On this trip the extra charging never costs more time than driving faster saves.');
+  } else {
+    lines.push('Faster than ' + best.v + ' km/h you lose time: the extra charging costs more than the driving you save.');
+  }
+  if (bestAll.v > s.vcap) {
+    if (bestAll.v >= VMAX) {
+      lines.push('With no speed limit the curve would still be falling at ' + VMAX + ' km/h, so with these charging settings there is no turning point in the range tested. Extra speed keeps paying off, just in smaller and smaller amounts.');
+    } else {
+      lines.push('Without a speed limit the quickest speed would be ' + bestAll.v + ' km/h, and the trip would take ' + fmtT(bestAll.total) + '.');
+    }
+  }
+  const nxt = res.find(r => r.v > best.v && r.stops > best.stops);
+  if (nxt && nxt.v <= VMAX) {
+    const prev = res[nxt.v - VMIN - 1];
+    const jump = nxt.total - prev.total;
+    if (jump > 0.5 && nxt.v <= s.vcap + 10) {
+      lines.push('At ' + nxt.v + ' km/h the trip needs stop number ' + nxt.stops + ' and gets ' + fmtT(jump) + ' slower than at ' + prev.v + ' km/h.');
+    }
+  }
+  const noStop = res.filter(r => r.stops === 0);
+  if (best.stops > 0 && noStop.length) {
+    const ns = noStop[noStop.length - 1];
+    lines.push('Slow down to ' + ns.v + ' km/h or less and you skip charging entirely. That takes ' + fmtT(ns.total) + ' (' + signedMin(ns.total - best.total) + ' vs. fastest).');
+  }
+  const head = s.dist + ' km: drive ' + best.v + ' km/h to arrive first, in ' + fmtT(best.total) + ' with ' + stopsTxt(best.stops) + '.';
+  $('verdict').innerHTML = '<p class="eyebrow">Trip summary</p><h2>' + head + '</h2>' +
+    lines.map((l, i) => '<p' + (i > 0 ? ' class="note"' : '') + '>' + l + '</p>').join('');
+}
+
+function renderCompare(s, best, sel) {
+  const rows = [
+    ['Speed', best.v + ' km/h', sel.v + ' km/h', ''],
+    ['Total time', fmtT(best.total), fmtT(sel.total), signedMin(sel.total - best.total)],
+    ['Driving', fmtT(best.drive), fmtT(sel.drive), signedMin(sel.drive - best.drive)],
+    ['Charging and stop overhead', fmtT(best.charge + best.ovh), fmtT(sel.charge + sel.ovh), signedMin((sel.charge + sel.ovh) - (best.charge + best.ovh))],
+    ['Charging stops', best.stops, sel.stops, (sel.stops - best.stops > 0 ? '+' : sel.stops - best.stops < 0 ? '\u2212' : '') + (sel.stops === best.stops ? 'same' : Math.abs(sel.stops - best.stops))],
+    ['Efficiency', best.kmkwh.toFixed(2) + ' km/kWh', sel.kmkwh.toFixed(2) + ' km/kWh', (sel.kmkwh - best.kmkwh >= 0 ? '+' : '\u2212') + Math.abs(sel.kmkwh - best.kmkwh).toFixed(2)],
+    ['Energy charged', best.charged.toFixed(0) + ' kWh', sel.charged.toFixed(0) + ' kWh', (sel.charged - best.charged >= 0 ? '+' : '\u2212') + Math.abs(sel.charged - best.charged).toFixed(0) + ' kWh'],
+    ['Charging cost', best.cost.toFixed(0) + ' kr', sel.cost.toFixed(0) + ' kr', (sel.cost - best.cost >= 0 ? '+' : '\u2212') + Math.abs(sel.cost - best.cost).toFixed(0) + ' kr'],
+    ['Battery on arrival', (best.arrival * 100).toFixed(0) + '%', (sel.arrival * 100).toFixed(0) + '%', '']
+  ];
+  $('compare').innerHTML = '<thead><tr><th></th><th>Fastest</th><th>Your speed</th><th>Difference</th></tr></thead><tbody>' +
+    rows.map(r => '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td><td class="d">' + r[3] + '</td></tr>').join('') + '</tbody>';
+}
+
+function renderCharts(s, res, best, bestAll, sel) {
+  const C = {
+    ink: css('--ink'), ink2: css('--ink-2'), grid: css('--grid'), rule: css('--rule'),
+    drive: css('--drive'), charge: css('--charge'), ovh: css('--ovh'), good: css('--good'), bad: css('--bad')
+  };
+  Chart.defaults.color = C.ink2;
+  Chart.defaults.borderColor = C.grid;
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.font.size = 12;
+
+  const lines = [];
+  const bands = [];
+  if (s.vcap < VMAX) bands.push({ from: s.vcap, to: VMAX + 1, color: C.ink + '10' });
+  lines.push({ x: best.v, color: C.good, label: 'fastest ' + best.v, row: 0 });
+  if (sel.v !== best.v) lines.push({ x: sel.v, color: C.ink, dash: [5, 4], label: 'you ' + sel.v, row: 1 });
+  if (bestAll.v !== best.v && bestAll.v < VMAX) lines.push({ x: bestAll.v, color: C.bad, dash: [2, 3], label: 'no-limit best ' + bestAll.v, row: 2 });
+
+  const xScale = {
+    type: 'linear', min: VMIN, max: VMAX,
+    title: { display: true, text: 'Cruising speed (km/h)' },
+    ticks: { stepSize: 10 }, grid: { color: C.grid }
+  };
+  const common = { responsive: true, maintainAspectRatio: false, animation: false };
+  const hTick = v => fmtHM(v * 60);
+
+  mk('cTotal', {
+    type: 'line',
+    data: { datasets: [
+      { label: 'Total trip time', data: res.map(r => ({ x: r.v, y: r.total / 60 })), borderColor: C.ink, borderWidth: 2.5, pointRadius: 0, tension: 0 },
+      { label: 'Fastest', type: 'scatter', data: [{ x: best.v, y: best.total / 60 }], backgroundColor: C.good, pointRadius: 7, pointHoverRadius: 8 },
+      { label: 'Your speed', type: 'scatter', data: [{ x: sel.v, y: sel.total / 60 }], backgroundColor: C.drive, pointRadius: 6, pointHoverRadius: 7 }
+    ] },
+    options: Object.assign({}, common, {
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      scales: { x: xScale, y: { grace: '6%', title: { display: true, text: 'Hours (h:mm)' }, ticks: { callback: hTick }, grid: { color: C.grid } } },
+      plugins: {
+        legend: { display: false },
+        markers: { lines, bands },
+        tooltip: { callbacks: {
+          title: it => it[0].parsed.x + ' km/h',
+          label: c => {
+            const r = res[Math.round(c.parsed.x) - VMIN];
+            return c.dataset.label + ': ' + fmtT(c.parsed.y * 60) + ' (' + stopsTxt(r.stops) + ')';
+          }
+        } }
+      }
+    })
+  });
+
+  mk('cStack', {
+    type: 'line',
+    data: { datasets: [
+      { label: 'Driving', data: res.map(r => ({ x: r.v, y: r.drive / 60 })), fill: 'origin', backgroundColor: C.drive + 'aa', borderColor: C.drive, borderWidth: 1, pointRadius: 0 },
+      { label: 'Charging', data: res.map(r => ({ x: r.v, y: r.charge / 60 })), fill: '-1', backgroundColor: C.charge + 'cc', borderColor: C.charge, borderWidth: 1, pointRadius: 0 },
+      { label: 'Stop overhead', data: res.map(r => ({ x: r.v, y: r.ovh / 60 })), fill: '-1', backgroundColor: C.ovh + 'cc', borderColor: C.ovh, borderWidth: 1, pointRadius: 0 }
+    ] },
+    options: Object.assign({}, common, {
+      interaction: { mode: 'index', axis: 'x', intersect: false },
+      scales: { x: xScale, y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Hours (h:mm)' }, ticks: { callback: hTick }, grid: { color: C.grid } } },
+      plugins: {
+        legend: { position: 'bottom' },
+        markers: { lines: [lines[0]], bands },
+        tooltip: { callbacks: {
+          title: it => it[0].parsed.x + ' km/h',
+          label: c => c.dataset.label + ': ' + fmtT(c.parsed.y * 60),
+          footer: items => 'Total: ' + fmtT(items.reduce((a, b) => a + b.parsed.y, 0) * 60)
+        } }
+      }
+    })
+  });
+
+  const effLine = res.map(r => ({ x: r.v, y: r.kmkwh }));
+  mk('cEff', {
+    type: 'line',
+    data: { datasets: [
+      { label: 'Model', data: effLine, borderColor: C.drive, borderWidth: 2.5, pointRadius: 0 },
+      { label: 'Published tests (2021\u201323)', type: 'scatter', data: PTS_OLD.map(p => ({ x: p[0], y: 1000 / p[1], wh: p[1] })), backgroundColor: C.charge, pointRadius: 5 },
+      { label: '2025 test', type: 'scatter', data: PTS_NEW.map(p => ({ x: p[0], y: 1000 / p[1], wh: p[1] })), backgroundColor: C.good, pointStyle: 'triangle', pointRadius: 6 }
+    ] },
+    options: Object.assign({}, common, {
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      scales: { x: xScale, y: { title: { display: true, text: 'km per kWh' }, grid: { color: C.grid } } },
+      plugins: {
+        legend: { position: 'bottom' },
+        markers: { lines: [lines[0]], bands },
+        tooltip: { callbacks: {
+          title: it => Math.round(it[0].parsed.x) + ' km/h',
+          label: c => {
+            const wh = c.raw.wh ? c.raw.wh : 1000 / c.parsed.y;
+            return c.dataset.label + ': ' + c.parsed.y.toFixed(2) + ' km/kWh (' + Math.round(wh) + ' Wh/km)';
+          }
+        } }
+      }
+    })
+  });
+
+  mk('cStops', {
+    type: 'line',
+    data: { datasets: [
+      { label: 'Charging stops', data: res.map(r => ({ x: r.v, y: r.stops })), yAxisID: 'y', stepped: true, borderColor: C.charge, backgroundColor: C.charge + '33', fill: 'origin', borderWidth: 2, pointRadius: 0 },
+      { label: 'Range between stops (km)', data: res.map(r => ({ x: r.v, y: r.legRange })), yAxisID: 'y2', borderColor: C.drive, borderWidth: 2, pointRadius: 0 }
+    ] },
+    options: Object.assign({}, common, {
+      interaction: { mode: 'index', axis: 'x', intersect: false },
+      scales: {
+        x: xScale,
+        y: { beginAtZero: true, title: { display: true, text: 'Stops' }, ticks: { precision: 0 }, grid: { color: C.grid } },
+        y2: { position: 'right', beginAtZero: true, title: { display: true, text: 'km' }, grid: { drawOnChartArea: false } }
+      },
+      plugins: {
+        legend: { position: 'bottom' },
+        markers: { lines: [lines[0]], bands },
+        tooltip: { callbacks: { title: it => it[0].parsed.x + ' km/h' } }
+      }
+    })
+  });
+
+  const labels = [], saved = [], extra = [];
+  for (let v = VMIN + 10; v <= VMAX; v += 10) {
+    const a = res[v - 10 - VMIN], b = res[v - VMIN];
+    labels.push((v - 10) + '\u2192' + v);
+    saved.push(a.total - b.total);
+    extra.push(b.charged - a.charged);
+  }
+  mk('cMarg', {
+    data: {
+      labels,
+      datasets: [
+        { type: 'bar', label: 'Minutes saved', data: saved, yAxisID: 'y', backgroundColor: saved.map(x => x >= 0 ? C.good + 'cc' : C.bad + 'cc'), borderRadius: 3 },
+        { type: 'line', label: 'Extra energy charged (kWh)', data: extra, yAxisID: 'y2', borderColor: C.charge, backgroundColor: C.charge, borderWidth: 2, pointRadius: 3 }
+      ]
+    },
+    options: Object.assign({}, common, {
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { title: { display: true, text: 'Speed step (km/h)' }, grid: { display: false } },
+        y: { title: { display: true, text: 'Minutes saved' }, grid: { color: C.grid } },
+        y2: { position: 'right', title: { display: true, text: 'kWh' }, grid: { drawOnChartArea: false } }
+      },
+      plugins: { legend: { position: 'bottom' } }
+    })
+  });
+
+  const cr = s.reserve / 100, ct = s.tgt / 100;
+  const curvePts = [];
+  for (let x = 0; x <= 100; x++) curvePts.push({ x, y: curveKw(x / 100, s.cap, s.kw) });
+  const winMin = chargeMinutes(cr, ct, s.cap, s.kw);
+  const winKwh = (ct - cr) * s.cap;
+  $('curveNote').textContent = s.reserve + '\u2192' + s.tgt + '%: ' + fmtT(winMin) + ' for ' + winKwh.toFixed(0) + ' kWh, about ' + Math.round(winKwh / (winMin / 60)) + ' kW on average. The shaded part is the window you charge in.';
+  mk('cCurve', {
+    type: 'line',
+    data: { datasets: [
+      { label: 'Charging power', data: curvePts, borderColor: C.charge, backgroundColor: C.charge + '33', fill: 'origin', borderWidth: 2.5, pointRadius: 0 }
+    ] },
+    options: Object.assign({}, common, {
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      scales: {
+        x: { type: 'linear', min: 0, max: 100, title: { display: true, text: 'Battery level (%)' }, ticks: { stepSize: 10 }, grid: { color: C.grid } },
+        y: { beginAtZero: true, title: { display: true, text: 'kW' }, grid: { color: C.grid } }
+      },
+      plugins: {
+        legend: { display: false },
+        markers: { bands: [{ from: s.reserve, to: s.tgt, color: C.good + '22' }] },
+        tooltip: { callbacks: {
+          title: it => Math.round(it[0].parsed.x) + '% battery',
+          label: c => Math.round(c.parsed.y) + ' kW'
+        } }
+      }
+    })
+  });
+}
+
+function renderHeat(s) {
+  const cols = [80, 90, 100, 110, 120, 130, 140, 150, 160, 180, 200];
+  let rowsDef;
+  if (heatMode === 'tgt') {
+    const set = new Set([50, 60, 70, 80, 90, 100, s.tgt]);
+    rowsDef = [...set].sort((a, b) => a - b).map(x => ({ label: x + '%', ov: { tgt: x }, cur: x === s.tgt }));
+  } else {
+    const set = new Set([50, 75, 100, 150, 250, s.kw]);
+    rowsDef = [...set].sort((a, b) => a - b).map(x => ({ label: x + ' kW', ov: { kw: x }, cur: x === s.kw }));
+  }
+  const grid = rowsDef.map(r => {
+    const cells = cols.map(v => sim(v, s, r.ov));
+    const quick = argminTotal(scan(s, r.ov));
+    return { r, cells, quick, rowMin: argminTotal(cells) };
+  });
+  const gmin = Math.min(...grid.map(g => g.rowMin.total));
+  let html = '<thead><tr><th>' + (heatMode === 'tgt' ? 'Charge up to' : 'Charger power') + '</th>' +
+    cols.map(v => '<th class="' + (v > s.vcap ? 'over' : '') + '">' + v + '</th>').join('') + '<th>Quickest</th></tr></thead><tbody>';
+  grid.forEach(g => {
+    html += '<tr><td>' + g.r.label + (g.r.cur ? '<span class="tag">current</span>' : '') + '</td>';
+    g.cells.forEach(c => {
+      const rel = (c.total - gmin) / gmin;
+      const pct = Math.max(0, Math.round(75 * (1 - rel / 0.22)));
+      const cls = 'cell' + (c.v === g.rowMin.v ? ' best' : '') + (c.v > s.vcap ? ' over' : '');
+      html += '<td class="' + cls + '" style="background: color-mix(in srgb, var(--good) ' + pct + '%, var(--surface))" title="' + c.v + ' km/h, ' + stopsTxt(c.stops) + '">' + fmtHM(c.total) + '</td>';
+    });
+    html += '<td class="q">' + (g.quick.v >= VMAX ? VMAX + '+' : g.quick.v) + ' km/h</td></tr>';
+  });
+  html += '</tbody>';
+  $('heat').innerHTML = html;
+}
+
+function renderTable(s, best, sel) {
+  const set = new Set();
+  for (let v = 70; v <= Math.max(s.vcap, 130); v += 10) set.add(v);
+  set.add(best.v); set.add(sel.v);
+  const speeds = [...set].sort((a, b) => a - b);
+  let html = '<thead><tr><th>Speed</th><th>km/kWh</th><th>Driving</th><th>Charging + overhead</th><th>Stops</th><th>Total</th><th>Average incl. stops</th><th>Charged</th><th>Cost</th></tr></thead><tbody>';
+  speeds.forEach(v => {
+    const r = sim(v, s);
+    const cls = v === best.v ? 'hl' : v === sel.v ? 'you' : '';
+    const tag = v === best.v ? '<span class="tag">fastest</span>' : v === sel.v ? '<span class="tag">your speed</span>' : '';
+    html += '<tr class="' + cls + '"><td>' + v + ' km/h' + tag + '</td><td>' + r.kmkwh.toFixed(2) + '</td><td>' + fmtHM(r.drive) + '</td><td>' + fmtHM(r.charge + r.ovh) + '</td><td>' + r.stops + '</td><td>' + fmtHM(r.total) + '</td><td>' + r.avg.toFixed(0) + ' km/h</td><td>' + r.charged.toFixed(0) + ' kWh</td><td>' + r.cost.toFixed(0) + '</td></tr>';
+  });
+  html += '</tbody>';
+  $('tbl').innerHTML = html;
+}
+
+IDS.forEach(i => $(i).addEventListener('input', () => {
+  if (i === 'dist') $('distR').value = Math.min(3000, Math.max(50, parseFloat($('dist').value) || 50));
+  update();
+}));
+$('distR').addEventListener('input', () => { $('dist').value = $('distR').value; update(); });
+$('hmTgt').addEventListener('click', () => { heatMode = 'tgt'; $('hmTgt').setAttribute('aria-pressed', 'true'); $('hmKw').setAttribute('aria-pressed', 'false'); renderHeat(readState()); });
+$('hmKw').addEventListener('click', () => { heatMode = 'kw'; $('hmKw').setAttribute('aria-pressed', 'true'); $('hmTgt').setAttribute('aria-pressed', 'false'); renderHeat(readState()); });
+
+try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', update); } catch (e) {}
+try { new MutationObserver(update).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }); } catch (e) {}
+
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(update);
+update();
+</script>
+</body>
+</html>
